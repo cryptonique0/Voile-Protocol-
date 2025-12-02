@@ -1,0 +1,25 @@
+{
+  "name": "@voile-protocol/sdk",
+  "version": "1.0.0",
+  "description": "Voile Protocol SDK for Miden integration",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint src --ext .ts"
+  },
+  "keywords": ["voile", "miden", "privacy", "defi", "exit-liquidity"],
+  "author": "cryptonique0",
+  "license": "MIT",
+  "dependencies": {
+    "@miden/client-sdk": "^0.12.0"
+  },
+  "note": "The @miden/client-sdk package is not yet published. This SDK provides the TypeScript interface for Voile Protocol.",
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "typescript": "^5.0.0",
+    "jest": "^29.0.0",
+    "@types/jest": "^29.0.0"
+  }
+}

@@ -1,0 +1,14 @@
+{
+  "network": "testnet",
+  "rpcEndpoint": "https://testnet-rpc.miden.io",
+  "contracts": {
+    "userWalletComponent": "",
+    "lpWalletComponent": "",
+    "exitNoteScript": "",
+    "settlementNoteScript": ""
+  },
+  "deployment": {
+    "gasLimit": 1000000,
+    "deployerAccount": ""
+  }
+}

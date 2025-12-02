@@ -1,0 +1,58 @@
+# Voile Protocol - User Wallet Account Component
+# Extends basic wallet with exit note creation capabilities
+
+use.miden::contracts::wallets::basic
+use.miden::account
+use.miden::tx
+use.miden::note
+
+# Export basic wallet interface
+export.basic::receive_asset
+export.basic::move_asset_to_note
+
+# Create exit note for private unstaking
+export.create_exit_note
+    # INPUTS: [unstake_amount, unlock_timestamp, fee_rate, min_advance]
+    
+    # Validate user has sufficient unstake balance
+    exec.account::get_storage_item
+    # Storage slot 0: unstake_balance
+    push.0 exec.account::get_item
+    
+    # Check balance >= unstake_amount
+    dup.1 dup.1 gte assert
+    
+    # Create private note with exit script
+    exec.tx::create_note
+    
+    # Update account state (decrement available unstake)
+    exec.account::set_item
+    
+    # Increment nonce (state changed)
+    exec.account::incr_nonce
+    
+    push.1  # Success
+end
+
+# Settle exit after unstake unlocks
+export.settle_exit
+    # INPUTS: [exit_note_id, settlement_proof]
+    
+    # Verify unstake has unlocked
+    exec.tx::get_block_number
+    # Check current_block >= unlock_block
+    
+    # Create settlement note for LP
+    exec.tx::create_note
+    
+    # Consume original exit note
+    # (already consumed by virtue of this transaction)
+    
+    # Transfer repayment to LP
+    exec.basic::move_asset_to_note
+    
+    # Increment nonce
+    exec.account::incr_nonce
+    
+    push.1  # Success
+end

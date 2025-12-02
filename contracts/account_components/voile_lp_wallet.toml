@@ -1,0 +1,34 @@
+name = "Voile LP Wallet"
+description = "Voile Protocol LP wallet component for liquidity provision"
+version = "1.0.0"
+supported-types = ["RegularAccountUpdatableCode", "RegularAccountImmutableCode"]
+
+[[storage]]
+name = "liquidity_pool_balance"
+description = "Total liquidity available for advancing"
+slot = 0
+type = "felt"
+
+[[storage]]
+name = "active_advances"
+description = "Map of active liquidity advances (EXIT_NOTE_ID -> advance details)"
+slot = 1
+type = "map"
+
+[[storage]]
+name = "repayment_claims"
+description = "Map of repayment claims (CLAIM_ID -> claim details)"
+slot = 2
+type = "map"
+
+[[storage]]
+name = "total_advanced"
+description = "Lifetime total liquidity advanced"
+slot = 3
+value = "0x0"
+
+[[storage]]
+name = "total_earned"
+description = "Lifetime fees earned"
+slot = 4
+value = "0x0"

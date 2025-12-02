@@ -1,0 +1,22 @@
+name = "Voile User Wallet"
+description = "Voile Protocol user wallet component with private exit note creation"
+version = "1.0.0"
+supported-types = ["RegularAccountUpdatableCode", "RegularAccountImmutableCode"]
+
+[[storage]]
+name = "unstake_balance"
+description = "Current unstake position balance"
+slot = 0
+type = "felt"
+
+[[storage]]
+name = "active_exits"
+description = "Map of active exit notes (NOTE_ID -> exit details)"
+slot = 1
+type = "map"
+
+[[storage]]
+name = "exit_count"
+description = "Total number of exits created"
+slot = 2
+value = "0x0"

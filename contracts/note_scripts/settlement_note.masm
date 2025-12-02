@@ -1,0 +1,26 @@
+# Voile Protocol - Settlement Note Script
+# Executed when unstake unlocks to automatically repay the LP
+
+use.miden::contracts::wallets::basic
+use.miden::account
+use.miden::note
+use.miden::tx
+
+begin
+    # Load repayment amount from note inputs
+    push.0 exec.note::get_inputs  # repayment_amount
+    
+    # Load LP account ID
+    push.1 exec.note::get_inputs
+    push.2 exec.note::get_inputs
+    
+    # Transfer assets to LP
+    exec.note::get_assets
+    exec.basic::receive_asset
+    
+    # Mark exit note as consumed
+    # (handled automatically by Miden when note is consumed)
+    
+    # Return success
+    push.1
+end

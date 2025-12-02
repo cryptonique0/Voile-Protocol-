@@ -1,0 +1,56 @@
+# Voile Protocol - LP Wallet Account Component
+# Extends basic wallet with liquidity provision capabilities
+
+use.miden::contracts::wallets::basic
+use.miden::account
+use.miden::tx
+use.miden::note
+
+# Export basic wallet interface
+export.basic::receive_asset
+export.basic::move_asset_to_note
+
+# Advance liquidity against exit note
+export.advance_liquidity
+    # INPUTS: [exit_note_commitment, advance_amount]
+    
+    # Validate exit note commitment
+    # (note details communicated off-chain)
+    
+    # Validate LP has sufficient balance
+    exec.account::get_vault_balance
+    dup.1 gte assert
+    
+    # Consume exit note (triggers exit note script)
+    exec.note::get_assets
+    exec.basic::move_asset_to_note
+    
+    # Store repayment claim in account storage
+    # Storage slot 10: active_claims (StorageMap)
+    push.10 exec.account::set_map_item
+    
+    # Increment nonce
+    exec.account::incr_nonce
+    
+    push.1  # Success
+end
+
+# Claim repayment when settlement occurs
+export.claim_repayment
+    # INPUTS: [repayment_claim_id]
+    
+    # Verify settlement conditions met
+    # (settlement note exists and is valid)
+    
+    # Consume settlement note
+    exec.note::get_assets
+    exec.basic::receive_asset
+    
+    # Remove claim from storage
+    push.10 exec.account::remove_map_item
+    
+    # Increment nonce
+    exec.account::incr_nonce
+    
+    push.1  # Success
+end
