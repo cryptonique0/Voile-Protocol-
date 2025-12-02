@@ -58,7 +58,11 @@ impl ExitTerms {
                         "Delayed terms missing blocks".to_string()
                     ));
                 }
-                let blocks = u64::from_le_bytes(bytes[1..9].try_into().unwrap());
+                let blocks = u64::from_le_bytes(
+                    bytes[1..9].try_into().map_err(|_| {
+                        VoileError::InvalidExitNote("Invalid blocks data".to_string())
+                    })?
+                );
                 Ok(ExitTerms::Delayed { blocks })
             }
             3 => {
@@ -67,8 +71,16 @@ impl ExitTerms {
                         "Custom terms missing parameters".to_string()
                     ));
                 }
-                let min_rate_bps = u16::from_le_bytes(bytes[1..3].try_into().unwrap());
-                let max_slippage_bps = u16::from_le_bytes(bytes[3..5].try_into().unwrap());
+                let min_rate_bps = u16::from_le_bytes(
+                    bytes[1..3].try_into().map_err(|_| {
+                        VoileError::InvalidExitNote("Invalid min_rate_bps data".to_string())
+                    })?
+                );
+                let max_slippage_bps = u16::from_le_bytes(
+                    bytes[3..5].try_into().map_err(|_| {
+                        VoileError::InvalidExitNote("Invalid max_slippage_bps data".to_string())
+                    })?
+                );
                 Ok(ExitTerms::Custom { min_rate_bps, max_slippage_bps })
             }
             _ => Err(VoileError::InvalidExitNote(
@@ -185,17 +197,29 @@ impl ExitNote {
         let mut note_id = [0u8; 32];
         note_id.copy_from_slice(&bytes[0..32]);
         
-        let amount = u64::from_le_bytes(bytes[32..40].try_into().unwrap());
+        let amount = u64::from_le_bytes(
+            bytes[32..40].try_into().map_err(|_| {
+                VoileError::InvalidExitNote("Invalid amount data".to_string())
+            })?
+        );
         
         let mut owner = [0u8; 32];
         owner.copy_from_slice(&bytes[40..72]);
         
-        let created_at = u64::from_le_bytes(bytes[72..80].try_into().unwrap());
+        let created_at = u64::from_le_bytes(
+            bytes[72..80].try_into().map_err(|_| {
+                VoileError::InvalidExitNote("Invalid created_at data".to_string())
+            })?
+        );
         
         let mut blinding_factor = [0u8; 32];
         blinding_factor.copy_from_slice(&bytes[80..112]);
         
-        let terms_len = u16::from_le_bytes(bytes[112..114].try_into().unwrap()) as usize;
+        let terms_len = u16::from_le_bytes(
+            bytes[112..114].try_into().map_err(|_| {
+                VoileError::InvalidExitNote("Invalid terms length data".to_string())
+            })?
+        ) as usize;
         
         if bytes.len() < 114 + terms_len {
             return Err(VoileError::InvalidExitNote(
