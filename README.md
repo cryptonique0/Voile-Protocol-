@@ -123,14 +123,15 @@ Voile supports multiple exit term types:
 ┌─────────────────────────────────────────────────────────────┐
 │                      Blockchain                              │
 │  ┌─────────────────────────────────────────────────────┐   │
-│  │  Commitment (32 bytes) + Proof (128 bytes)           │   │
+│  │  Commitment (32 bytes) + Proof (160 bytes)           │   │
 │  │  No exit amount, timing, or terms visible            │   │
 │  └─────────────────────────────────────────────────────┘   │
 │                            │                                 │
 │                            ▼                                 │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │              Proof Verifier                          │   │
-│  │  - Validates proof structure                         │   │
+│  │  - Validates proof cryptographically                 │   │
+│  │  - Verifies verification tag                         │   │
 │  │  - Checks nullifier not used                         │   │
 │  │  - Executes exit if valid                            │   │
 │  └─────────────────────────────────────────────────────┘   │
@@ -139,10 +140,12 @@ Voile supports multiple exit term types:
 
 ## Security
 
-- **Commitment Scheme**: Uses Keccak256 for binding commitments
-- **Encryption**: XOR-based stream cipher with Keccak256 key derivation
-- **Proof System**: Fiat-Shamir heuristic with domain separation
+- **Commitment Scheme**: Uses Keccak256 for binding commitments with random blinding factors
+- **Encryption**: XOR-based stream cipher with Keccak256 key derivation and random nonces
+- **Proof System**: Hash-based proof of knowledge with Fiat-Shamir transform and verification tags
+- **Domain Separation**: Each chain/deployment uses a unique domain separator to prevent cross-chain replay
 - **Nullifiers**: Derived from note ID and owner secret to prevent double-spending
+- **Verification Tags**: Cryptographic binding ensures proofs cannot be forged without knowing the secret
 
 ## Testing
 
