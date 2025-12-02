@@ -8,6 +8,19 @@
 
 The official Miden testnet and deployment tools are **not yet fully public**. Here's what you need to know:
 
+### 🔧 Tool Installation Issues
+
+**Attempted**: Installing `miden-client-cli` from GitHub
+**Result**: Cargo registry corruption and dependency conflicts
+**Conclusion**: Miden CLI tools are not production-ready for external use yet
+
+The tooling is under active development and has:
+- Registry corruption issues (`hex v0.4.3` missing)
+- Version conflicts with dependencies
+- Incomplete public documentation
+
+This confirms Miden is still in **internal development phase**.
+
 ---
 
 ## What We Have ✅
