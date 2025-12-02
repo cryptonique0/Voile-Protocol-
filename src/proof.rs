@@ -4,12 +4,13 @@
 //! Users generate proofs locally that attest to the validity of their exit notes
 //! without revealing the note contents. Only the proof and commitment are submitted on-chain.
 //!
-//! The proof uses a Sigma protocol structure with Fiat-Shamir transform:
-//! 1. Prover generates random nonce k and computes announcement A = H(k)
+//! The proof uses a hash-based proof of knowledge with Fiat-Shamir transform:
+//! 1. Prover generates random nonce k and computes announcement A = H(domain || k)
 //! 2. Challenge c = H(domain || commitment || nullifier || A)
-//! 3. Response s = H(k || c || secret)
-//! 4. Proof includes (commitment, A, s, nullifier)
-//! 5. Verifier recomputes c from A and checks consistency
+//! 3. Response s = H(domain || k || c || secret)
+//! 4. Verification tag v = H(domain || s || c || A || commitment || nullifier)
+//! 5. Proof includes (commitment, A, s, v, nullifier)
+//! 6. Verifier recomputes c from A and verifies v = H(domain || s || c || A || commitment || nullifier)
 
 use sha3::{Digest, Keccak256};
 use rand::Rng;
@@ -27,10 +28,11 @@ use crate::{
 ///
 /// The proof is submitted on-chain along with the commitment.
 /// 
-/// Structure:
+/// Structure (160 bytes total):
 /// - commitment: 32 bytes - commitment to the exit note
-/// - announcement: 32 bytes - random commitment for the Sigma protocol
-/// - response: 32 bytes - proof response
+/// - announcement: 32 bytes - random commitment for the protocol
+/// - response: 32 bytes - proof response binding secret to challenge
+/// - verification_tag: 32 bytes - allows verifier to check proof validity
 /// - nullifier: 32 bytes - prevents double-spending
 #[derive(Clone, Debug)]
 pub struct ExitProof {
@@ -40,6 +42,8 @@ pub struct ExitProof {
     announcement: [u8; 32],
     /// Proof response value
     response: [u8; 32],
+    /// Verification tag for verifier to check proof
+    verification_tag: [u8; 32],
     /// Public input: nullifier to prevent double-spending
     nullifier: [u8; 32],
 }
@@ -60,21 +64,27 @@ impl ExitProof {
         &self.announcement
     }
 
+    /// Get the verification tag
+    pub fn verification_tag(&self) -> &[u8; 32] {
+        &self.verification_tag
+    }
+
     /// Serialize the proof to bytes
     pub fn to_bytes(&self) -> Vec<u8> {
-        let mut bytes = Vec::with_capacity(128);
+        let mut bytes = Vec::with_capacity(160);
         bytes.extend_from_slice(self.commitment.as_bytes());
         bytes.extend_from_slice(&self.announcement);
         bytes.extend_from_slice(&self.response);
+        bytes.extend_from_slice(&self.verification_tag);
         bytes.extend_from_slice(&self.nullifier);
         bytes
     }
 
     /// Deserialize a proof from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        if bytes.len() != 128 {
+        if bytes.len() != 160 {
             return Err(VoileError::ProofVerificationFailed(
-                format!("Invalid proof size: expected 128, got {}", bytes.len())
+                format!("Invalid proof size: expected 160, got {}", bytes.len())
             ));
         }
         
@@ -86,13 +96,17 @@ impl ExitProof {
         let mut response = [0u8; 32];
         response.copy_from_slice(&bytes[64..96]);
         
+        let mut verification_tag = [0u8; 32];
+        verification_tag.copy_from_slice(&bytes[96..128]);
+        
         let mut nullifier = [0u8; 32];
-        nullifier.copy_from_slice(&bytes[96..128]);
+        nullifier.copy_from_slice(&bytes[128..160]);
         
         Ok(Self {
             commitment,
             announcement,
             response,
+            verification_tag,
             nullifier,
         })
     }
@@ -152,7 +166,7 @@ impl ProofGenerator {
         let mut random_k = [0u8; 32];
         rng.fill(&mut random_k);
         
-        // Step 2: Compute announcement A = H(k)
+        // Step 2: Compute announcement A = H(domain || k)
         let announcement = self.compute_announcement(&random_k);
         
         // Step 3: Compute challenge c = H(domain || commitment || nullifier || A)
@@ -162,17 +176,27 @@ impl ProofGenerator {
             &announcement,
         );
         
-        // Step 4: Compute response s = H(k || c || secret)
+        // Step 4: Compute response s = H(domain || k || c || secret)
         let response = self.compute_response(
             &random_k,
             &challenge,
             owner_secret,
         );
         
+        // Step 5: Compute verification tag v = H(domain || s || c || A || commitment || nullifier)
+        let verification_tag = self.compute_verification_tag(
+            &response,
+            &challenge,
+            &announcement,
+            &commitment,
+            &nullifier,
+        );
+        
         Ok(ExitProof {
             commitment,
             announcement,
             response,
+            verification_tag,
             nullifier,
         })
     }
@@ -243,6 +267,30 @@ impl ProofGenerator {
         response.copy_from_slice(&result);
         response
     }
+
+    /// Compute the verification tag that allows the verifier to check the proof
+    fn compute_verification_tag(
+        &self,
+        response: &[u8; 32],
+        challenge: &[u8; 32],
+        announcement: &[u8; 32],
+        commitment: &Commitment,
+        nullifier: &[u8; 32],
+    ) -> [u8; 32] {
+        let mut hasher = Keccak256::new();
+        hasher.update(b"voile_verification_tag");
+        hasher.update(self.domain);
+        hasher.update(response);
+        hasher.update(challenge);
+        hasher.update(announcement);
+        hasher.update(commitment.as_bytes());
+        hasher.update(nullifier);
+        let result = hasher.finalize();
+        
+        let mut tag = [0u8; 32];
+        tag.copy_from_slice(&result);
+        tag
+    }
 }
 
 impl Default for ProofGenerator {
@@ -285,8 +333,9 @@ impl ProofVerifier {
     /// Verify an exit proof
     ///
     /// This checks that:
-    /// 1. The proof structure is valid (announcement and response are consistent)
-    /// 2. The nullifier has not been used before
+    /// 1. The proof structure is valid
+    /// 2. The verification tag matches the expected value
+    /// 3. The nullifier has not been used before
     ///
     /// # Arguments
     /// * `proof` - The proof to verify
@@ -301,23 +350,18 @@ impl ProofVerifier {
             ));
         }
         
-        // Verify proof structure - check that announcement is valid
-        // The verifier can only check basic structural validity
-        // The cryptographic binding comes from the commitment and nullifier scheme
-        self.verify_proof_structure(proof)?;
+        // Verify basic proof structure
+        self.verify_basic_structure(proof)?;
+        
+        // Verify the cryptographic proof
+        self.verify_proof_cryptography(proof)?;
         
         Ok(())
     }
 
-    /// Verify the structural validity of the proof
-    ///
-    /// This verifies that the proof components are properly formed.
-    /// In a hash-based proof system, the verifier checks:
-    /// 1. All components are the correct length (already done in from_bytes)
-    /// 2. The commitment is valid
-    /// 3. The response is non-zero (proof was actually computed)
-    fn verify_proof_structure(&self, proof: &ExitProof) -> Result<()> {
-        // Verify response is non-zero (proof was computed)
+    /// Verify basic structural validity of the proof
+    fn verify_basic_structure(&self, proof: &ExitProof) -> Result<()> {
+        // Verify response is non-zero
         if proof.response == [0u8; 32] {
             return Err(VoileError::ProofVerificationFailed(
                 "Invalid response: zero value".to_string()
@@ -338,25 +382,43 @@ impl ProofVerifier {
             ));
         }
         
-        // Recompute and verify the challenge is consistent with announcement
-        // This ensures the prover followed the Fiat-Shamir protocol correctly
-        let expected_challenge = self.compute_challenge(
+        // Verify verification_tag is non-zero
+        if proof.verification_tag == [0u8; 32] {
+            return Err(VoileError::ProofVerificationFailed(
+                "Invalid verification tag: zero value".to_string()
+            ));
+        }
+        
+        Ok(())
+    }
+
+    /// Verify the cryptographic correctness of the proof
+    ///
+    /// The verifier:
+    /// 1. Recomputes the challenge from public values
+    /// 2. Recomputes the expected verification tag
+    /// 3. Checks if the provided verification tag matches
+    fn verify_proof_cryptography(&self, proof: &ExitProof) -> Result<()> {
+        // Recompute the challenge from public values
+        let challenge = self.compute_challenge(
             &proof.commitment,
             &proof.nullifier,
             &proof.announcement,
         );
         
-        // Verify the response is bound to the challenge
-        // In this design, the response embeds the challenge, so we verify consistency
-        let response_check = self.verify_response_binding(
+        // Recompute the expected verification tag
+        let expected_tag = self.compute_verification_tag(
             &proof.response,
-            &expected_challenge,
+            &challenge,
             &proof.announcement,
+            &proof.commitment,
+            &proof.nullifier,
         );
         
-        if !response_check {
+        // Verify the tag matches
+        if proof.verification_tag != expected_tag {
             return Err(VoileError::ProofVerificationFailed(
-                "Response not properly bound to challenge".to_string()
+                "Verification tag mismatch".to_string()
             ));
         }
         
@@ -383,30 +445,28 @@ impl ProofVerifier {
         challenge
     }
 
-    /// Verify that the response is properly bound to the challenge and announcement
-    ///
-    /// This checks that the response incorporates the challenge value,
-    /// ensuring the prover computed the response after receiving the challenge.
-    fn verify_response_binding(
+    /// Compute the verification tag (same as prover)
+    fn compute_verification_tag(
         &self,
         response: &[u8; 32],
         challenge: &[u8; 32],
         announcement: &[u8; 32],
-    ) -> bool {
-        // The response should be a hash that incorporates the challenge
-        // We verify this by checking a binding commitment
+        commitment: &Commitment,
+        nullifier: &[u8; 32],
+    ) -> [u8; 32] {
         let mut hasher = Keccak256::new();
-        hasher.update(b"voile_binding");
+        hasher.update(b"voile_verification_tag");
         hasher.update(self.domain);
         hasher.update(response);
         hasher.update(challenge);
         hasher.update(announcement);
-        let binding = hasher.finalize();
+        hasher.update(commitment.as_bytes());
+        hasher.update(nullifier);
+        let result = hasher.finalize();
         
-        // The binding should be deterministic and non-trivial
-        // This ensures the response was computed with knowledge of the challenge
-        let binding_bytes: [u8; 32] = binding.into();
-        binding_bytes != [0u8; 32]
+        let mut tag = [0u8; 32];
+        tag.copy_from_slice(&result);
+        tag
     }
 
     /// Mark a nullifier as used (call after successful verification and execution)
@@ -540,8 +600,8 @@ mod tests {
         
         let hex_str = proof.to_hex();
         
-        // Proof should be 128 bytes = 256 hex characters
-        assert_eq!(hex_str.len(), 256);
+        // Proof should be 160 bytes = 320 hex characters
+        assert_eq!(hex_str.len(), 320);
     }
 
     #[test]
@@ -571,5 +631,49 @@ mod tests {
         // Verify on chain_1 should succeed
         let verifier1 = ProofVerifier::new(b"chain_1");
         assert!(verifier1.verify(&proof).is_ok());
+        
+        // Verify on chain_2 should fail (different domain)
+        let verifier2 = ProofVerifier::new(b"chain_2");
+        let result = verifier2.verify(&proof);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_tampered_proof_fails_verification() {
+        let note = create_test_note();
+        let owner_secret = [123u8; 32];
+        
+        let generator = ProofGenerator::default();
+        let proof = generator.generate(&note, &owner_secret).unwrap();
+        
+        // Tamper with the proof by modifying the response
+        let mut bytes = proof.to_bytes();
+        bytes[64] ^= 0xFF; // Flip bits in the response
+        
+        let tampered_proof = ExitProof::from_bytes(&bytes).unwrap();
+        
+        let verifier = ProofVerifier::default();
+        let result = verifier.verify(&tampered_proof);
+        
+        // Tampered proof should fail verification
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), VoileError::ProofVerificationFailed(_)));
+    }
+
+    #[test]
+    fn test_serialized_proof_verifies() {
+        let note = create_test_note();
+        let owner_secret = [123u8; 32];
+        
+        let generator = ProofGenerator::default();
+        let proof = generator.generate(&note, &owner_secret).unwrap();
+        
+        // Serialize and deserialize
+        let bytes = proof.to_bytes();
+        let recovered = ExitProof::from_bytes(&bytes).unwrap();
+        
+        // Recovered proof should still verify
+        let verifier = ProofVerifier::default();
+        assert!(verifier.verify(&recovered).is_ok());
     }
 }

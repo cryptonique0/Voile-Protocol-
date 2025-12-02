@@ -162,7 +162,11 @@ impl EncryptedNote {
             ));
         }
         
-        let counter = u64::from_le_bytes(bytes[0..8].try_into().unwrap());
+        let counter = u64::from_le_bytes(
+            bytes[0..8].try_into().map_err(|_| {
+                VoileError::DecryptionError("Invalid counter data".to_string())
+            })?
+        );
         let ciphertext = bytes[8..].to_vec();
         
         Ok(Self { ciphertext, counter })
